@@ -68,6 +68,9 @@ public:
 
   VectorType Streamwise_Periodic_RecoveredPressure,    /*!< \brief Recovered/Physical pressure [Pa] for streamwise periodic flow. */
              Streamwise_Periodic_RecoveredTemperature; /*!< \brief Recovered/Physical temperature [K] for streamwise periodic flow. */
+
+  VectorType symmetry;      /*!< \brief Nodes in symmetry planes. */
+
  public:
   /*!
    * \brief Constructor of the class.
@@ -271,5 +274,29 @@ public:
   inline void SetVelSolutionVector(unsigned long iPoint, const su2double *val_vector) final {
     for (unsigned long iDim = 0; iDim < nDim; iDim++) Solution(iPoint, iDim+1) = val_vector[iDim];
   }
+ /*!
+   * \brief Returns the stored value of Eve at the specified node
+   */
+  su2double *GetEve(unsigned long iPoint) {return nullptr;}
+
+  /*!
+   * \brief Returns the value of Cvve at the specified node
+   */
+  su2double *GetCvve(unsigned long iPoint) {return nullptr;}
+
+  /*!
+   * \brief Returns the stored value of Gamma at the specified node
+   */
+  su2double GetGamma(unsigned long iPoint) {return 0;}
+
+    /*!
+   * \brief Retrieves the number of symmetry planes at the specified node.
+   */  
+  inline su2double GetSymmetry(unsigned long iPoint) { return symmetry[iPoint]; }
+
+  /*!
+   * \brief Increases the number of symmetry planes at the specified node by one.
+   */  
+  inline void SetSymmetry(unsigned long iPoint) {symmetry[iPoint] += 1.0;}
 
 };

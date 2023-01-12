@@ -1062,22 +1062,89 @@ void CFVMFlowSolverBase<V, R>::PushSolutionBackInTime(unsigned long TimeIter, bo
 template <class V, ENUM_REGIME R>
 void CFVMFlowSolverBase<V, R>::BC_Sym_Plane(CGeometry* geometry, CSolver** solver_container, CNumerics* conv_numerics,
                                             CNumerics* visc_numerics, CConfig* config, unsigned short val_marker) {
-  unsigned short iDim, iVar;
-  unsigned long iVertex, iPoint;
+  unsigned short iDim, iVar, iNeigh;
+  unsigned long iVertex, iPoint, jPoint, iEdge, iMarker;
+  su2double Tangent[MAXNDIM]  = {0.0};
+  su2double Normal_Sym[MAXNDIM] = {0.0}, UnitNormal_Sym[MAXNDIM] = {0.0};
+  su2double Normal_Product, Product, tol = 1e-16;
 
-  bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
-  bool viscous = config->GetViscous();
+  const bool implicit = (config->GetKind_TimeIntScheme() == EULER_IMPLICIT);
+  const bool viscous = config->GetViscous();
+  const bool nemo = config->GetNEMOProblem();
   bool preprocessed = false;
+  const unsigned short nSpecies = config->GetnSpecies();
 
   /*--- Allocation of variables necessary for convective fluxes. ---*/
   su2double Area, ProjVelocity_i, *V_reflected, *V_domain, Normal[MAXNDIM] = {0.0}, UnitNormal[MAXNDIM] = {0.0};
 
   /*--- Allocation of variables necessary for viscous fluxes. ---*/
   su2double ProjGradient, ProjNormVelGrad, ProjTangVelGrad, TangentialNorm,
-      Tangential[MAXNDIM] = {0.0}, GradNormVel[MAXNDIM] = {0.0}, GradTangVel[MAXNDIM] = {0.0};
+      Tangential[MAXNDIM] = {0.0}, GradNormVel[MAXNDIM] = {0.0}, GradTangVel[MAXNDIM] = {0.0}, Residual[MAXNVAR] = {0.0};
 
   /*--- Allocation of primitive gradient arrays for viscous fluxes. ---*/
   su2activematrix Grad_Reflected(nPrimVarGrad, nDim);
+
+/*--- Count number of symmetry planes where each Vertex is inserted ---*/
+  for (iMarker = 0; iMarker < geometry->GetnMarker(); iMarker++) {
+    if (config->GetMarker_All_KindBC(iMarker) == SYMMETRY_PLANE){
+      for (iVertex = 0; iVertex < geometry->GetnVertex(iMarker); iVertex++) {
+        iPoint = geometry->vertex[iMarker][iVertex]->GetNode();
+        nodes->SetSymmetry(iPoint);
+      }
+    }
+  }
+
+  /*--- Correct normal directions of edges ---*/
+  for (iMarker = 0; iMarker < geometry->GetnMarker(); iMarker++) {
+    if (config->GetMarker_All_KindBC(iMarker) == SYMMETRY_PLANE){
+
+      for (iVertex = 0; iVertex < geometry->GetnVertex(iMarker); iVertex++) {
+
+        iPoint = geometry->vertex[iMarker][iVertex]->GetNode();
+
+        geometry->vertex[iMarker][iVertex]->GetNormal(Normal_Sym);
+
+        Area = GeometryToolbox::Norm(nDim, Normal_Sym);
+
+        for(iDim = 0; iDim<nDim; iDim++){
+          UnitNormal_Sym[iDim] = Normal_Sym[iDim]/Area;
+        }
+
+        for (iNeigh = 0; iNeigh < geometry->nodes->GetnPoint(iPoint); ++iNeigh){
+          Product = 0.0;
+
+          jPoint = geometry->nodes->GetPoint(iPoint,iNeigh);
+
+          /*---Check if neighbour point is on the same plane as the Symmetry_Plane
+               by computing the internal product and of the Normal Vertex vector and
+               the vector connecting iPoint and jPoint. If the product is lower than
+               estabilished tolerance (to account for Numerical errors) both points are
+               in the same plane as SYMMETRY_PLANE---*/
+
+          for(iDim = 0; iDim<nDim; iDim++){
+            Tangent[iDim] = geometry->nodes->GetCoord(jPoint,iDim) - geometry->nodes->GetCoord(iPoint,iDim);
+            Product += Tangent[iDim] * Normal_Sym[iDim];
+          }
+
+          if (abs(Product) < tol) {
+            Product = 0.0;
+
+            iEdge = geometry->nodes->GetEdge(iPoint,iNeigh);
+
+            geometry->edges->GetNormal(iEdge,Normal);
+
+            for(iDim = 0; iDim<nDim; iDim++)
+              Product += Normal[iDim]*UnitNormal_Sym[iDim];
+
+            for(iDim = 0; iDim<nDim; iDim++)
+              Normal[iDim]-=Product*UnitNormal_Sym[iDim];
+
+            geometry->edges->SetNormal(iEdge,Normal);
+          }
+        }
+      }
+    }
+  }
 
   /*--- Loop over all the vertices on this boundary marker. ---*/
 
@@ -1143,9 +1210,10 @@ void CFVMFlowSolverBase<V, R>::BC_Sym_Plane(CGeometry* geometry, CSolver** solve
     }      // if bound_is_straight
 
     iPoint = geometry->vertex[val_marker][iVertex]->GetNode();
-
+      
     /*--- Check if the node belongs to the domain (i.e., not a halo node) ---*/
     if (geometry->nodes->GetDomain(iPoint)) {
+      Normal_Product = 0.0;
       /*-------------------------------------------------------------------------------*/
       /*--- Step 1: For the convective fluxes, create a reflected state of the      ---*/
       /*---         Primitive variables by copying all interior values to the       ---*/
@@ -1172,25 +1240,30 @@ void CFVMFlowSolverBase<V, R>::BC_Sym_Plane(CGeometry* geometry, CSolver** solve
             the velocity is mirrored along the symmetry boundary, i.e. the velocity in
             normal direction is substracted twice. ---*/
       for (iVar = 0; iVar < nPrimVar; iVar++) V_reflected[iVar] = nodes->GetPrimitive(iPoint, iVar);
-
+        
       /*--- Compute velocity in normal direction (ProjVelcity_i=(v*n)) und substract twice from
             velocity in normal direction: v_r = v - 2 (v*n)n ---*/
       ProjVelocity_i = nodes->GetProjVel(iPoint, UnitNormal);
-
+        
       /*--- Adjustment to v.n due to grid movement. ---*/
       if (dynamic_grid) {
         ProjVelocity_i -= GeometryToolbox::DotProduct(nDim, geometry->nodes->GetGridVel(iPoint), UnitNormal);
       }
 
       for (iDim = 0; iDim < nDim; iDim++)
-        V_reflected[iDim + 1] = nodes->GetVelocity(iPoint, iDim) - 2.0 * ProjVelocity_i * UnitNormal[iDim];
+        V_reflected[prim_idx.Velocity() + iDim] = nodes->GetVelocity(iPoint, iDim) - 2.0 * ProjVelocity_i * UnitNormal[iDim];
 
       /*--- Set Primitive and Secondary for numerics class. ---*/
       conv_numerics->SetPrimitive(V_domain, V_reflected);
       conv_numerics->SetSecondary(nodes->GetSecondary(iPoint), nodes->GetSecondary(iPoint));
 
-      /*--- Compute the residual using an upwind scheme. ---*/
+      if (nemo) {
+        conv_numerics->SetEve(nodes->GetEve(iPoint),    nodes->GetEve(iPoint));
+        conv_numerics->SetCvve(nodes->GetCvve(iPoint),   nodes->GetCvve(iPoint));
+        conv_numerics->SetGamma(nodes->GetGamma(iPoint),  nodes->GetGamma(iPoint));
+      }
 
+      /*--- Compute the residual using an upwind scheme. ---*/
       auto residual = conv_numerics->ComputeResidual(config);
 
       /*--- Update residual value ---*/
