@@ -232,6 +232,9 @@ CEulerSolver::CEulerSolver(CGeometry *geometry, CConfig *config,
   Exhaust_Pressure.resize(nMarker);
   Exhaust_Area.resize(nMarker);
 
+  /*--- Turbomachinery simulation ---*/
+  AverageMassFlowRate.resize(nMarker);
+
   /*--- Read farfield conditions from config ---*/
 
   Temperature_Inf = config->GetTemperature_FreeStreamND();
@@ -279,6 +282,8 @@ CEulerSolver::CEulerSolver(CGeometry *geometry, CConfig *config,
     Exhaust_Temperature[iMarker] = Temperature_Inf;
     Exhaust_Pressure[iMarker]    = Pressure_Inf;
     Exhaust_Area[iMarker]        = 0.0;
+
+    AverageMassFlowRate[iMarker] = 0.0;
   }
 
   /*--- Initialize the solution to the far-field state everywhere. ---*/
@@ -6407,13 +6412,7 @@ void CEulerSolver::BC_Giles(CGeometry *geometry, CSolver **solver_container, CNu
       Pressure_e /= config->GetPressure_Ref();
 
       /* --- Compute avg characteristic jump  --- */
-      if (nDim == 2){
-        c_avg[3] = -2.0*(AveragePressure[val_marker][iSpan]-Pressure_e);
-      }
-      else
-      {
-        c_avg[4] = -2.0*(AveragePressure[val_marker][iSpan]-Pressure_e);
-      }
+      c_avg[nDim + 1] = -2.0*(AveragePressure[val_marker][iSpan]-Pressure_e);
       break;
 
     case STATIC_PRESSURE_1D:
@@ -6421,13 +6420,7 @@ void CEulerSolver::BC_Giles(CGeometry *geometry, CSolver **solver_container, CNu
       Pressure_e /= config->GetPressure_Ref();
 
       /* --- Compute avg characteristic jump  --- */
-      if (nDim == 2){
-        c_avg[3] = -2.0*(AveragePressure[val_marker][nSpanWiseSections]-Pressure_e);
-      }
-      else
-      {
-        c_avg[4] = -2.0*(AveragePressure[val_marker][nSpanWiseSections]-Pressure_e);
-      }
+      c_avg[nDim + 1] = -2.0*(AveragePressure[val_marker][nSpanWiseSections]-Pressure_e);
       break;
 
     case RADIAL_EQUILIBRIUM:
@@ -6436,6 +6429,16 @@ void CEulerSolver::BC_Giles(CGeometry *geometry, CSolver **solver_container, CNu
       /* --- Compute avg characteristic jump  --- */
       c_avg[4] = -2.0*(AveragePressure[val_marker][iSpan]-Pressure_e);
 
+      break;
+
+    case MASS_FLOW_OUTLET:
+      auto const MassFlowRate_e = config->GetGiles_Var1(Marker_Tag);
+      auto const relFacMassFlowRate = config->GetGiles_Var2(Marker_Tag);
+
+      Pressure_e = AveragePressure[val_marker][nSpanWiseSections]+relFacMassFlowRate*(AverageMassFlowRate[val_marker]-MassFlowRate_e);
+
+      /*--- Compute avg characteristic jump  ---*/
+      c_avg[nDim + 1] = -2.0*(AveragePressure[val_marker][iSpan]-Pressure_e);
       break;
 
     }
@@ -6609,7 +6612,7 @@ void CEulerSolver::BC_Giles(CGeometry *geometry, CSolver **solver_container, CNu
         break;
 
 
-      case STATIC_PRESSURE:case STATIC_PRESSURE_1D:case MIXING_OUT:case RADIAL_EQUILIBRIUM:case MIXING_OUT_1D:
+      case STATIC_PRESSURE:case STATIC_PRESSURE_1D:case MIXING_OUT:case RADIAL_EQUILIBRIUM:case MIXING_OUT_1D: case MASS_FLOW_OUTLET:
 
         /* --- implementation of Giles BC---*/
         if(config->GetSpatialFourier()){
@@ -8981,7 +8984,7 @@ void CEulerSolver::TurboAverageProcess(CSolver **solver, CGeometry *geometry, CC
 
       TotalMassPressure         += Area*(Density*TurboVelocity[0] )*Pressure;
       TotalMassDensity          += Area*(Density*TurboVelocity[0] )*Density;
-
+      
       for (auto iDim = 0u; iDim < nDim; iDim++) {
         TotalVelocity[iDim] += Velocity[iDim];
         TotalAreaVelocity[iDim] += Area*Velocity[iDim];
@@ -9105,8 +9108,7 @@ void CEulerSolver::TurboAverageProcess(CSolver **solver, CGeometry *geometry, CC
             /*--- Compute the averaged value for the boundary of interest for the span of interest ---*/
 
             const bool belowMachLimit = (abs(MachTest)< config->GetAverageMachLimit());
-            su2double avgDensity{0}, avgPressure{0}, avgKine{0}, avgOmega{0}, avgNu{0},
-                      avgVelocity[MAXNDIM] = {0};
+            su2double avgDensity{0}, avgPressure{0}, avgKine{0}, avgOmega{0}, avgNu{0}, avgVelocity[MAXNDIM] = {0};
             for (auto iVar = 0u; iVar<nVar; iVar++){
               AverageFlux[iMarker][iSpan][iVar]   = TotalFluxes[iVar]/TotalArea;
               SpanTotalFlux[iMarker][iSpan][iVar] = TotalFluxes[iVar];
@@ -9190,12 +9192,16 @@ void CEulerSolver::TurboAverageProcess(CSolver **solver, CGeometry *geometry, CC
                   avgNu         = TotalMassNu / TotalFluxes[0];
                 }
               }
+
+              if (iSpan == nSpanWiseSections){
+                AverageMassFlowRate[iMarker] = TotalFluxes[0];
+              }
+
               break;
             default:
               SU2_MPI::Error(" Invalid AVERAGE PROCESS input!", CURRENT_FUNCTION);
               break;
             }
-
             AverageDensity[iMarker][iSpan] = avgDensity;
             AveragePressure[iMarker][iSpan] = avgPressure;
             if ((average_process == MIXEDOUT) && !belowMachLimit) {
