@@ -28,6 +28,7 @@
 
 #include "../../../Common/include/parallelization/omp_structure.hpp"
 #include "../../../Common/include/toolboxes/geometry_toolbox.hpp"
+#include "computeGradientsSymmetry.hpp"
 
 namespace detail {
 
@@ -177,10 +178,11 @@ FORCEINLINE void solveLeastSquares(size_t iPoint,
  * \param[in] varEnd - Index of last variable for which to compute the gradient.
  * \param[out] gradient - Generic object implementing operator (iPoint, iVar, iDim).
  * \param[out] Rmatrix - Generic object implementing operator (iPoint, iDim, iDim).
+ * \param[in] idx_vel - index to velocity, -1 if no velocity present in solver.
  */
 template<size_t nDim, class FieldType, class GradientType, class RMatrixType>
 void computeGradientsLeastSquares(CSolver* solver,
-                                  MPI_QUANTITIES kindMpiComm,
+                                  ENUM_MPI_QUANTITIES kindMpiComm,
                                   PERIODIC_QUANTITIES kindPeriodicComm,
                                   CGeometry& geometry,
                                   const CConfig& config,
@@ -189,7 +191,8 @@ void computeGradientsLeastSquares(CSolver* solver,
                                   size_t varBegin,
                                   size_t varEnd,
                                   GradientType& gradient,
-                                  RMatrixType& Rmatrix)
+                                  RMatrixType& Rmatrix,
+                                  int idx_vel)
 {
   const bool periodic = (solver != nullptr) && (config.GetnMarker_Periodic() > 0);
 
@@ -312,6 +315,10 @@ void computeGradientsLeastSquares(CSolver* solver,
     END_SU2_OMP_FOR
   }
 
+  /* --- compute the corrections for symmetry planes and Euler walls. --- */
+  computeGradientsSymmetry(nDim, solver, kindMpiComm, kindPeriodicComm, geometry, config, field, varBegin, varEnd, gradient, idx_vel);
+
+
   /*--- If no solver was provided we do not communicate ---*/
 
   if (solver != nullptr)
@@ -331,7 +338,7 @@ void computeGradientsLeastSquares(CSolver* solver,
  */
 template<class FieldType, class GradientType, class RMatrixType>
 void computeGradientsLeastSquares(CSolver* solver,
-                                  MPI_QUANTITIES kindMpiComm,
+                                  ENUM_MPI_QUANTITIES kindMpiComm,
                                   PERIODIC_QUANTITIES kindPeriodicComm,
                                   CGeometry& geometry,
                                   const CConfig& config,
@@ -340,15 +347,17 @@ void computeGradientsLeastSquares(CSolver* solver,
                                   size_t varBegin,
                                   size_t varEnd,
                                   GradientType& gradient,
-                                  RMatrixType& Rmatrix) {
+                                  RMatrixType& Rmatrix,
+                                  int idx_vel
+                                  ) {
   switch (geometry.GetnDim()) {
   case 2:
     detail::computeGradientsLeastSquares<2>(solver, kindMpiComm, kindPeriodicComm, geometry, config,
-                                            weighted, field, varBegin, varEnd, gradient, Rmatrix);
+                                            weighted, field, varBegin, varEnd, gradient, Rmatrix, idx_vel);
     break;
   case 3:
     detail::computeGradientsLeastSquares<3>(solver, kindMpiComm, kindPeriodicComm, geometry, config,
-                                            weighted, field, varBegin, varEnd, gradient, Rmatrix);
+                                            weighted, field, varBegin, varEnd, gradient, Rmatrix, idx_vel);
     break;
   default:
     SU2_MPI::Error("Too many dimensions to compute gradients.", CURRENT_FUNCTION);

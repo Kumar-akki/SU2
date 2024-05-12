@@ -240,7 +240,7 @@ public:
    * \param[out] MPI_TYPE - Enumerated type for the datatype of the quantity to be communicated.
    */
   void GetCommCountAndType(const CConfig* config,
-                           unsigned short commType,
+                           ENUM_MPI_QUANTITIES commType,
                            unsigned short &COUNT_PER_POINT,
                            unsigned short &MPI_TYPE) const;
 
@@ -252,7 +252,7 @@ public:
    */
   void InitiateComms(CGeometry *geometry,
                      const CConfig *config,
-                     unsigned short commType);
+                     ENUM_MPI_QUANTITIES commType);
 
   /*!
    * \brief Routine to complete the set of non-blocking communications launched by InitiateComms() and unpacking of the data in the solver class.
@@ -262,7 +262,7 @@ public:
    */
   void CompleteComms(CGeometry *geometry,
                      const CConfig *config,
-                     unsigned short commType);
+                     ENUM_MPI_QUANTITIES commType);
 
   /*!
    * \brief Helper function to define the type and number of variables per point for each communication type.
@@ -543,17 +543,19 @@ public:
    * \brief Compute the Green-Gauss gradient of the solution.
    * \param[in] geometry - Geometrical definition of the problem.
    * \param[in] config - Definition of the particular problem.
+   * \param[in] idx_vel - index to velocity, or -1 when no velocity present.
    * \param[in] reconstruction - indicator that the gradient being computed is for upwind reconstruction.
    */
-  void SetSolution_Gradient_GG(CGeometry *geometry, const CConfig *config, bool reconstruction = false);
+  void SetSolution_Gradient_GG(CGeometry *geometry, const CConfig *config, int idx_vel, bool reconstruction = false);
 
   /*!
    * \brief Compute the Least Squares gradient of the solution.
    * \param[in] geometry - Geometrical definition of the problem.
    * \param[in] config - Definition of the particular problem.
+   * \param[in] idx_vel - index to velocity, or -1 when no velocity present.
    * \param[in] reconstruction - indicator that the gradient being computed is for upwind reconstruction.
    */
-  void SetSolution_Gradient_LS(CGeometry *geometry, const CConfig *config, bool reconstruction = false);
+  void SetSolution_Gradient_LS(CGeometry *geometry, const CConfig *config, int idx_vel, bool reconstruction = false);
 
   /*!
    * \brief Compute the Least Squares gradient of the grid velocity.
